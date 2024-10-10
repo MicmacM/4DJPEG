@@ -24,11 +24,18 @@ def HexDump(data):
         b, = unpack("B",data[i:i+1])        
         print("%02x " % b),
 
-def ColorConversion(Y, Cr, Cb):
+def RGB_to_YCB(Y, Cr, Cb):
     R = Cr*(2-2*.299) + Y
     B = Cb*(2-2*.114) + Y
     G = (Y - .114*B - .299*R)/.587
     return (Clamp(R+128),Clamp(G+128),Clamp(B+128) )
+
+def YCB_to_RGB(R, G, B):
+    Y = 0.299*R + 0.587*G + 0.114*B
+    Cr = -0.1687*R - 0.3313*G + 0.5*B + 128
+    Cb = 0.5*R - 0.4187*G -0.0813*B + 128
+    return (Clamp(Y),Clamp(Cr),Clamp(Cb))
+
 
 def GetArray(type,l, length):
     s = ""
@@ -201,7 +208,7 @@ class jpeg:
                 # store it as RGB
                 for yy in range(8):
                     for xx in range(8):
-                        self.image[(x*8+xx) + ((y*8+yy) * self.width)] = ColorConversion( matL.base[XYtoLin(xx,yy)] , matCb.base[XYtoLin(xx,yy)], matCr.base[XYtoLin(xx,yy)])
+                        self.image[(x*8+xx) + ((y*8+yy) * self.width)] = RGB_to_YCB( matL.base[XYtoLin(xx,yy)] , matCb.base[XYtoLin(xx,yy)], matCr.base[XYtoLin(xx,yy)])
         
         return lenchunk +hdrlen
 
@@ -267,7 +274,7 @@ class jpeg:
                 break        
         return (self.width, self.height, self.image)
     
-    def encode(self, data):
+    def encode(self, im_array):
         pass
 
 
