@@ -1,7 +1,7 @@
 # 4DJPEG
 Using JPEG like technique to compress a video efficiently
 ## About
-Upon seeing this amazing video : ![the jpeg algorithm](https://youtu.be/0me3guauqOU?si=WSZwbFdwA-Anfzx7), i wondered "if jpeg applies 3 2D-DCT along the two spatial axis and the 3 colors, can't we apply 3 3D-DCT along the two spatial axis and the temporal axis, by viewing a pixel as a time series ?". And so this is what I'm trying to do, apply it to a video and :
+Upon seeing this amazing video : [the jpeg algorithm](https://youtu.be/0me3guauqOU?si=WSZwbFdwA-Anfzx7), i wondered "if jpeg applies 3 2D-DCT along the two spatial axis and the 3 colors, can't we apply 3 3D-DCT along the two spatial axis and the temporal axis, by viewing a pixel as a time series ?". And so this is what I'm trying to do, apply it to a video and :
 
 - Check if the decompressed video is still close to the original
 - Compare the compression to a standard compression using only a series of jpeg image, and then to the MPEG standart
@@ -37,3 +37,8 @@ The compression ratio achieved is between 97,5 and 99%, this is really nice I th
 - Try selecting the length of the temporal chunks according to the temporal variation
 - Compare it against MPEG
 - Use a better quantization matrix
+
+
+## Aknowledgment
+
+I used [Understanding and Decoding a JPEG Image using Python](https://yasoob.me/posts/understanding-and-writing-jpeg-decoder-in-python/) article to understand the jpeg algorithm in more details than in the video linked above, as well as the wikipedia pages
