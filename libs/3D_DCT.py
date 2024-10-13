@@ -47,7 +47,7 @@ def norm3manhattan(x,y,z):
     return x+y+z
 
 def manhattan_zigzag_matrix():
-    zz = np.fromfunction(norm3manhattan, (8, 8, 8))
+    zz = np.fromfunction(norm3manhattan, (8, 8, 8)).astype(int)
     pos = 0
     mini = 0
     tovisit = [(i,j,k) for i in range(8) for j in range(8) for k in range(8)]
@@ -88,12 +88,12 @@ def plot_3d_scatter(matrix_3d):
 def quantize(im_array, quantization_matrix_3D):
     dct_arr = DCT_3D(im_array)
     quantize_rgbt = np.repeat(quantization_matrix_3D[:, :, np.newaxis, :], 3, axis=2)
-    return dct_arr / quantize_rgbt
+    return (dct_arr / quantize_rgbt).astype(int)
 
 def unquantize(quantized_arr, quantization_matrix_3D):
     quantize_rgbt = np.repeat(quantization_matrix_3D[:, :, np.newaxis, :], 3, axis=2)
     unquantized_arr = quantized_arr * quantize_rgbt
-    return IDCT_3D(unquantized_arr)
+    return IDCT_3D(unquantized_arr).astype(int)
 
 
 def visualize_frames_as_video(frames_array, interval=500):
@@ -114,11 +114,16 @@ def visualize_frames_as_video(frames_array, interval=500):
 
 def zigzag_encoding(matrix):
     zz = manhattan_zigzag_matrix()
-    encoded = np.zeros(matrix.size)
+    encoded_r = [0]*512
+    encoded_g = [0]*512
+    encoded_b = [0]*512
     for i in range(8):
         for j in range(8):
             for k in range(8):
-                encoded[zz[i,j,k]] = matrix[i,j,k]
+                encoded_r[zz[i,j,k]] = matrix[i,j,0,k]
+                encoded_g[zz[i,j,k]] = matrix[i,j,1,k]
+                encoded_b[zz[i,j,k]] = matrix[i,j,2,k]
+    return encoded_r, encoded_g, encoded_b
 
 def delta_encoding(l):
     return [l[i] if i == 0 else l[i] - l[i-1] for i in range(len(l))]
@@ -132,10 +137,9 @@ def run_length_encoding(l):
         else:
             res.append((l[i], nb_elem))
             nb_elem = 1
+    res.append((l[-1], nb_elem))
     return res
 
-#! NEED TO ADD THE LAST TUPLE
-print(run_length_encoding([3,3,3,0,0,0,0,4,0,5,0,0,0,2,0,0]))
 
 def matrix_size_in_bits(matrix):
     # Get size in bytes
@@ -146,6 +150,14 @@ def matrix_size_in_bits(matrix):
     
     return size_in_bits
 
+def number_of_bits(lst):
+    total_bits = 0
+    for compressed_8x8_array in lst:
+        for chanel_arrays in compressed_8x8_array:
+            for tup in chanel_arrays:
+                for num in tup:
+                    total_bits += int(num).bit_length()  # Sum the bit length of each integer
+    return total_bits
 
 
 if __name__ == "__main__":
@@ -154,14 +166,34 @@ if __name__ == "__main__":
     base_y = 350
     increment = 12
     test_array = time_array.video_to_frames_array(video_path)
+    compressed_data = np.zeros((increment*8, increment*8, 3, 8)).astype(int)
     reconstitued = np.zeros((increment*8, increment*8, 3, 8)).astype(int)
     echantillon = test_array[base_x:base_x + increment*8, base_y:base_y + increment*8, :, 2:10]
+    dc_values = []
+    ac_values = []
     for i in range(increment):
         for j in range(increment):
             sample = test_array[base_x + i*8:base_x + 8*(i+1), base_y + 8*j:base_y + 8*(j+1), :, 2:10]
             compressed = quantize(sample, Q)
+            ac = [compressed[x,y,:,z] for x in range(8) for y in range(8) for z in range(8)]
+            dc = ac.pop(0)
+            dc_values.append(dc)
+
+            #? We take the dc value too, remove it in a later version perhaps ?
+            zz_compressed_r, zz_compressed_g, zz_compressed_b = zigzag_encoding(compressed)
+            compressed_ac_r = run_length_encoding(zz_compressed_r)
+            compressed_ac_g = run_length_encoding(zz_compressed_r)
+            compressed_ac_b = run_length_encoding(zz_compressed_r)
+            ac_values.append((compressed_ac_r, compressed_ac_b, compressed_ac_g))
+
             decompressed = unquantize(compressed, Q)
             reconstitued[8*i:8*(i+1), 8*j:8*(j+1), :, :] = decompressed
+    
+    dc_values = delta_encoding(dc_values)
+    print(dc_values)
+    print(number_of_bits(ac_values))
+    #print(ac_values)
+    print(matrix_size_in_bits(echantillon))
     #visualize_frames_as_video(echantillon, interval=500)
     #visualize_frames_as_video(reconstitued, interval=500)
-    print("Compression level : ", (1- matrix_size_in_bits(compressed)/matrix_size_in_bits(echantillon))*100, "%")
+    print("Compression level : ", (1- (number_of_bits(ac_values)+number_of_bits(dc_values))/matrix_size_in_bits(echantillon))*100, "%")
