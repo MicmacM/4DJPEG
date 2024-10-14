@@ -1,287 +1,60 @@
-#!/usr/bin/env python
-# Using base code by Raul Aguaviva for decoding a 2D DCT, thanks to him !
+import dct_3D
 
-from struct import *
-import math 
-from PIL import Image 
+if __name__ == "__main__":
+    video_path = "../cresson.mp4"
+    base_x = 800
+    base_y = 350
+    #Number of spatial chunk of size 8
+    spatial_i = 12
+    t0 = 2
+    #Number of temporal chunk of size 8
+    temporal_i = 10
+    test_array = time_array.video_to_frames_array(video_path)
+    compressed_data = np.zeros((spatial_i*8, spatial_i*8, 3, temporal_i*8)).astype(int)
+    reconstitued = np.zeros((spatial_i*8, spatial_i*8, 3, temporal_i*8)).astype(int)
+    echantillon = test_array[base_x:base_x + spatial_i*8, base_y:base_y + spatial_i*8, :, t0:t0+(temporal_i+1)*8]
+    dc_values = []
+    ac_values = []
+    for i in range(spatial_i):
+        for j in range(spatial_i):
+            for t in range(temporal_i):
+                sample = test_array[base_x + i*8:base_x + 8*(i+1), base_y + 8*j:base_y + 8*(j+1), :, t0+t*8:t0+(t+1)*8]
+                
+                #! 3D DCT COMPRESSION AND QUANTIZATION
+                compressed = quantize(sample, Q)
 
-zigzag = [0, 1, 8, 16, 9, 2, 3, 10,
-    17, 24, 32, 25, 18, 11, 4, 5,
-    12, 19, 26, 33, 40, 48, 41, 34,
-    27, 20, 13, 6, 7, 14, 21, 28,
-    35, 42, 49, 56, 57, 50, 43, 36,
-    29, 22, 15, 23, 30, 37, 44, 51,
-    58, 59, 52, 45, 38, 31, 39, 46,
-    53, 60, 61, 54, 47, 55, 62, 63]
+                #! RUN LENGTH, DELTA AND ZIGZAG ENCODING
+                ac = [compressed[x,y,:,z] for x in range(8) for y in range(8) for z in range(8)]
+                dc = ac.pop(0)
 
-def Clamp(col):
-    col = 255 if col>255 else col
-    col = 0 if col<0 else col
-    return  int(col)
+                dc_values.append(dc)
 
-def HexDump(data):
-    for i in range(len(data)):
-        b, = unpack("B",data[i:i+1])        
-        print("%02x " % b),
+                #? We take the dc value too, remove it in a later version perhaps ?
+                zz_compressed_r, zz_compressed_g, zz_compressed_b = zigzag_encoding(compressed)
+                compressed_ac_r = run_length_encoding(zz_compressed_r)
+                compressed_ac_g = run_length_encoding(zz_compressed_g)
+                compressed_ac_b = run_length_encoding(zz_compressed_b)
+                ac_values.append((compressed_ac_r, compressed_ac_b, compressed_ac_g))
 
-def RGB_to_YCB(Y, Cr, Cb):
-    R = Cr*(2-2*.299) + Y
-    B = Cb*(2-2*.114) + Y
-    G = (Y - .114*B - .299*R)/.587
-    return (Clamp(R+128),Clamp(G+128),Clamp(B+128) )
+                #! RUN LENGTH, DELTA AND ZIGZAG DECODING
+                decompressed_ac_r = run_length_decoding(compressed_ac_r)
+                decompressed_ac_g = run_length_decoding(compressed_ac_g)
+                decompressed_ac_b = run_length_decoding(compressed_ac_b)
 
-def YCB_to_RGB(R, G, B):
-    Y = 0.299*R + 0.587*G + 0.114*B
-    Cr = -0.1687*R - 0.3313*G + 0.5*B + 128
-    Cb = 0.5*R - 0.4187*G -0.0813*B + 128
-    return (Clamp(Y),Clamp(Cr),Clamp(Cb))
+                decompressed_zz = zigzag_decoding(decompressed_ac_r, decompressed_ac_g, decompressed_ac_b)
 
-
-def GetArray(type,l, length):
-    s = ""
-    for i in range(length):
-        s =s+type
-    return list(unpack(s,l[:length]))
-
-def DecodeNumber(code, bits):
-    l = 2**(code-1)
-    if bits>=l:
-        return bits
-    else:
-        return bits-(2*l-1)
+                #! 3D IDCT AND DEQUANTIZATION
+                decompressed = unquantize(decompressed_zz, Q)
+                reconstitued[8*i:8*(i+1), 8*j:8*(j+1), :, 8*t:8*(t+1)] = decompressed
     
-def PrintMatrix( m):
-    for j in range(8):
-        for i in range(8):
-            print("%2f" % m[i+j*8]),
-        print
-    print
+    dc_values = delta_encoding(dc_values)
+    #! EOF
 
-def XYtoLin(x,y):
-    return x+y*8
-
-def RemoveFF00(data):
-    datapro = []
-    i = 0
-    while(True):
-        b,bnext = unpack("BB",data[i:i+2])        
-        if (b == 0xff):
-            if (bnext != 0):
-                break
-            datapro.append(data[i])
-            i+=2
-        else:
-            datapro.append(data[i])
-            i+=1
-    return datapro,i
-
-# helps build a MCU matrix
-class IDCT:
-    def __init__(self):
-        self.base = [0]*64
-
-    def NormCoeff(self, n):
-        return math.sqrt( 1.0/8.0) if (n==0) else math.sqrt( 2.0/8.0)
-
-    def AddIDC(self, n,m, coeff):
-        an = self.NormCoeff(n)
-        am = self.NormCoeff(m)
-
-        for y in range(0,8):
-            for x in range(0,8):
-                nn = an*math.cos( n* math.pi * (x +.5)/8.0 )
-                mm = am*math.cos( m* math.pi * (y +.5)/8.0 )
-                self.base[ XYtoLin(x, y) ] += nn*mm*coeff
-
-    def AddZigZag(self, zi, coeff):
-        i = zigzag[zi]
-        n = i & 0x7
-        m = i >> 3
-        self.AddIDC( n,m, coeff)
-
-# convert a string into a bit stream
-class Stream:
-    def __init__(self, data):
-        self.data= data
-        self.pos = 0
-
-    def GetBit(self):
-        b = self.data[self.pos >> 3]
-        s = 7-(self.pos & 0x7)
-        self.pos+=1
-        return (b >> s) & 1
-
-    def GetBitN(self, l):
-        val = 0
-        for i in range(l):
-            val = val*2 + self.GetBit()
-        return val
-
-# Create huffman bits from table lengths
-class HuffmanTable:
-    def __init__(self):
-        self.root=[]
-        self.elements = []
-    
-    def BitsFromLengths(self, root, element, pos):
-        if isinstance(root,list):
-            if pos==0:
-                if len(root)<2:
-                    root.append(element)
-                    return True                
-                return False
-            for i in [0,1]:
-                if len(root) == i:
-                    root.append([])
-                if self.BitsFromLengths(root[i], element, pos-1) == True:
-                    return True
-        return False
-    
-    def GetHuffmanBits(self,  lengths, elements):
-        self.elements = elements
-        ii = 0
-        for i in range(len(lengths)):
-            for j in range(lengths[i]):
-                self.BitsFromLengths(self.root, elements[ii], i)
-                ii+=1
-
-    def Find(self,st):
-        r = self.root
-        while isinstance(r, list):
-            r=r[st.GetBit()]
-        return  r 
-
-    def GetCode(self, st):
-        while(True):
-            res = self.Find(st)
-            if res == 0:
-                return 0
-            elif ( res != -1):
-                return res
-
-# main class that decodes the jpeg
-class jpeg:
-    def __init__(self):
-        self.quant = {}
-        self.quantMapping = []
-        self.tables = {}
-        self.width = 0
-        self.height = 0
-        self.image = []
-
-    def BuildMatrix(self, st, idx, quant, olddccoeff):    
-        i = IDCT()    
-        code = self.tables[0+idx].GetCode(st)
-        bits = st.GetBitN(code)
-        dccoeff = DecodeNumber(code, bits)  + olddccoeff
-
-        i.AddZigZag(0,(dccoeff) * quant[0])
-        l = 1
-        while(l<64):
-            code = self.tables[16+idx].GetCode(st) 
-            if code == 0:
-                break
-            if code >15:
-                l+= (code>>4)
-                code = code & 0xf
-            
-            bits = st.GetBitN( code )
-
-            if l<64:
-                coeff  =  DecodeNumber(code, bits) 
-                i.AddZigZag(l,coeff * quant[l])
-                l+=1
-        return i,dccoeff
-    
-    def StartOfScan(self, data, hdrlen):
-        data,lenchunk = RemoveFF00(data[hdrlen:])
-
-        st = Stream(data)
-
-        oldlumdccoeff, oldCbdccoeff, oldCrdccoeff = 0, 0, 0
-        for y in range(self.height//8):
-            for x in range(self.width//8):
-                # decode 8x8 block
-                matL, oldlumdccoeff = self.BuildMatrix(st,0, self.quant[self.quantMapping[0]], oldlumdccoeff)
-                matCr, oldCrdccoeff = self.BuildMatrix(st,1, self.quant[self.quantMapping[1]], oldCrdccoeff)
-                matCb, oldCbdccoeff = self.BuildMatrix(st,1, self.quant[self.quantMapping[2]], oldCbdccoeff)
-                # store it as RGB
-                for yy in range(8):
-                    for xx in range(8):
-                        self.image[(x*8+xx) + ((y*8+yy) * self.width)] = RGB_to_YCB( matL.base[XYtoLin(xx,yy)] , matCb.base[XYtoLin(xx,yy)], matCr.base[XYtoLin(xx,yy)])
-        
-        return lenchunk +hdrlen
-
-    def DefineQuantizationTables(self, data):
-        while(len(data)>0):
-            hdr, = unpack("B",data[0:1])
-            #print hdr >>4, hdr & 0xf
-            self.quant[hdr & 0xf] =  GetArray("B", data[1:1+64],64)
-            #PrintMatrix(self.quant[hdr >>4])
-            data = data[65:]
-
-    def BaselineDCT(self, data):
-        hdr, self.height, self.width, components = unpack(">BHHB",data[0:6])
-        print("size %ix%i" % (self.width,  self.height))
-        self.image = [0] * (self.width * self.height);
-
-        for i in range(components):
-            id, samp, QtbId = unpack("BBB",data[6+i*3:9+i*3])
-            self.quantMapping.append(QtbId)         
-        
-    def DefineHuffmanTables(self, data):
-        while(len(data)>0):
-            off = 0
-            hdr, = unpack("B",data[off:off+1])
-            off+=1
-
-            lengths = GetArray("B", data[off:off+16],16) 
-            off += 16
-        
-            elements = []
-            for i in lengths:
-                elements+= (GetArray("B", data[off:off+i], i))
-                off = off+i 
-
-            hf = HuffmanTable()
-            hf.GetHuffmanBits( lengths, elements)
-            self.tables[hdr] = hf
-
-            data = data[off:]
-
-    def decode(self, data):    
-        while(True):
-            hdr, = unpack(">H", data[0:2])
-            if hdr == 0xffd8:
-                lenchunk = 2
-            elif hdr == 0xffd9:
-                break
-            else:
-                lenchunk, = unpack(">H", data[2:4])
-                lenchunk+=2
-                chunk = data[4:lenchunk]
-                if hdr == 0xffdb:
-                    self.DefineQuantizationTables(chunk)
-                elif hdr == 0xffc0:
-                    self.BaselineDCT(chunk)
-                elif hdr == 0xffc4:
-                    self.DefineHuffmanTables(chunk)
-                elif hdr == 0xffda:
-                    lenchunk = self.StartOfScan(data, lenchunk)
-            
-            data = data[lenchunk:]
-            if len(data)==0:
-                break        
-        return (self.width, self.height, self.image)
-    
-    def encode(self, im_array):
-        pass
-
-
-width, height, image = jpeg().decode(open('images/porsche.jpg', 'rb').read())
-
-#show image
-
-img = Image.new("RGB", (width, height))
-img.putdata(image) 
-img.show() 
+    #! DEBUG ONLY
+    print(number_of_bits_ac(ac_values))
+    print(number_of_bits_dc(dc_values))
+    #print(ac_values)
+    print(matrix_size_in_bits(echantillon))
+    visualize_frames_as_video(echantillon, interval=500)
+    visualize_frames_as_video(reconstitued, interval=500)
+    print("Compression level : ", (1- (number_of_bits_ac(ac_values)+number_of_bits_dc(dc_values))/matrix_size_in_bits(echantillon))*100, "%")
