@@ -5,6 +5,8 @@ import matplotlib.animation as animation
 from scipy.fftpack import dct, idct
 import time_array
 import cv2
+from tqdm import tqdm
+import time
 
 def clamp(color):
     return max(min(color, ))
@@ -34,11 +36,11 @@ quantization_matrix = np.array([
     [72, 92, 95, 98, 112, 100, 103, 99]
 ])
 
-def quantization_matrix_3D(quantization_matrix_2D):
-    Q = np.zeros((8,8,8))
+def quantization_matrix_3D(quantization_matrix_2D, time_chunk):
+    Q = np.zeros((8,8,time_chunk))
     for i in range(8):
         for j in range(8):
-            for t in range(8):
+            for t in range(time_chunk):
                 Q[i,j,t] = int(quantization_matrix_2D[i,j] + sqrt(i**2 + j**2 + t**2)*t)
 
     return Q
@@ -46,11 +48,11 @@ def quantization_matrix_3D(quantization_matrix_2D):
 def norm3manhattan(x,y,z):
     return x+y+z
 
-def manhattan_zigzag_matrix():
-    zz = np.fromfunction(norm3manhattan, (8, 8, 8)).astype(int)
+def manhattan_zigzag_matrix(time_chunk):
+    zz = np.fromfunction(norm3manhattan, (8, 8, time_chunk)).astype(int)
     pos = 0
     mini = 0
-    tovisit = [(i,j,k) for i in range(8) for j in range(8) for k in range(8)]
+    tovisit = [(i,j,k) for i in range(8) for j in range(8) for k in range(time_chunk)]
     place_in_visit = 0
     while tovisit:
         if place_in_visit == len(tovisit):
@@ -67,7 +69,7 @@ def manhattan_zigzag_matrix():
     return zz
 
 
-Q = quantization_matrix_3D(quantization_matrix)
+
 
 def plot_3d_scatter(matrix_3d):
     fig = plt.figure(figsize=(8, 8))
@@ -112,25 +114,23 @@ def visualize_frames_as_video(frames_array, interval=500):
 
     plt.show()
 
-def zigzag_encoding(matrix):
-    zz = manhattan_zigzag_matrix()
-    encoded_r = [0]*512
-    encoded_g = [0]*512
-    encoded_b = [0]*512
+def zigzag_encoding(matrix,zz,time_chunk):
+    encoded_r = [0]*64*time_chunk
+    encoded_g = [0]*64*time_chunk
+    encoded_b = [0]*64*time_chunk
     for i in range(8):
         for j in range(8):
-            for k in range(8):
+            for k in range(time_chunk):
                 encoded_r[zz[i,j,k]] = matrix[i,j,0,k]
                 encoded_g[zz[i,j,k]] = matrix[i,j,1,k]
                 encoded_b[zz[i,j,k]] = matrix[i,j,2,k]
     return encoded_r, encoded_g, encoded_b
 
-def zigzag_decoding(encoded_r, encoded_g, encoded_b):
-    zz = manhattan_zigzag_matrix()
-    matrix = np.zeros((8,8,3,8))
+def zigzag_decoding(zz,encoded_r, encoded_g, encoded_b, time_chunk):
+    matrix = np.zeros((8,8,3,time_chunk))
     for i in range(8):
         for j in range(8):
-            for k in range(8):
+            for k in range(time_chunk):
                 matrix[i,j,0,k] = encoded_r[zz[i,j,k]]
                 matrix[i,j,1,k] = encoded_g[zz[i,j,k]]
                 matrix[i,j,2,k] = encoded_b[zz[i,j,k]]
@@ -192,6 +192,24 @@ def number_of_bits_dc(lst):
     return total_bits
 
 
+
+
+def compute_error(im1, im2):
+    diff = im1.astype(np.float64) - im2.astype(np.float64)
+    distance = np.sqrt(np.sum(diff ** 2))
+    return distance
+
+def compute_time_chunk_size(video_array, N_chunk, t0 = 0, tf = -1):
+    changes = []
+    im0 = video_array[:,:,:,t0]
+    for t in range(t0 + 1, tf - 1):
+        im1 = video_array[:,:,:,t]
+        changes.append(compute_error(im0, im1))
+        im0 = im1
+
+    print(len(changes))
+    return np.sort(np.argsort(changes)[::-1][:N_chunk])
+
 if __name__ == "__main__":
     video_path = "../cresson.mp4"
     base_x = 800
@@ -199,30 +217,44 @@ if __name__ == "__main__":
     #Number of spatial chunk of size 8
     spatial_i = 12
     t0 = 2
-    #Number of temporal chunk of size 8
-    temporal_i = 10
+    tf = 82
     test_array = time_array.video_to_frames_array(video_path)
-    compressed_data = np.zeros((spatial_i*8, spatial_i*8, 3, temporal_i*8)).astype(int)
-    reconstitued = np.zeros((spatial_i*8, spatial_i*8, 3, temporal_i*8)).astype(int)
-    echantillon = test_array[base_x:base_x + spatial_i*8, base_y:base_y + spatial_i*8, :, t0:t0+(temporal_i+1)*8]
+    compressed_data = np.zeros((spatial_i*8, spatial_i*8, 3, tf)).astype(int)
+    reconstitued = np.zeros((spatial_i*8, spatial_i*8, 3, tf)).astype(int)
+    echantillon = test_array[base_x:base_x + spatial_i*8, base_y:base_y + spatial_i*8, :, t0:tf+1]
+
+    times_array = list(compute_time_chunk_size(echantillon, 4, t0, tf) + [2])
+
+    if t0 not in times_array:
+        times_array = [t0] + times_array
+    if tf not in times_array:
+        times_array = times_array + [tf]
+
+    print(times_array)
+    
+    Q = quantization_matrix_3D(quantization_matrix, tf-t0)
     dc_values = []
     ac_values = []
-    for i in range(spatial_i):
-        for j in range(spatial_i):
-            for t in range(temporal_i):
-                sample = test_array[base_x + i*8:base_x + 8*(i+1), base_y + 8*j:base_y + 8*(j+1), :, t0+t*8:t0+(t+1)*8]
+    for t in tqdm(range(len(times_array) - 1), desc="progress"):
+        time_chunk = times_array[t+1] - times_array[t]
+        Q_time_chunk = Q[:,:,:time_chunk]
+        zz = manhattan_zigzag_matrix(time_chunk)
+
+        for i in range(spatial_i):
+            for j in range(spatial_i):
                 
+                sample = test_array[base_x + i*8:base_x + 8*(i+1), base_y + 8*j:base_y + 8*(j+1), :, times_array[t]:times_array[t+1]]
                 #! 3D DCT COMPRESSION AND QUANTIZATION
-                compressed = quantize(sample, Q)
+                compressed = quantize(sample, Q_time_chunk)
 
                 #! RUN LENGTH, DELTA AND ZIGZAG ENCODING
-                ac = [compressed[x,y,:,z] for x in range(8) for y in range(8) for z in range(8)]
+                ac = [compressed[x,y,:,z] for x in range(8) for y in range(8) for z in range(time_chunk)]
                 dc = ac.pop(0)
 
                 dc_values.append(dc)
 
                 #? We take the dc value too, remove it in a later version perhaps ?
-                zz_compressed_r, zz_compressed_g, zz_compressed_b = zigzag_encoding(compressed)
+                zz_compressed_r, zz_compressed_g, zz_compressed_b = zigzag_encoding(compressed, zz, time_chunk)
                 compressed_ac_r = run_length_encoding(zz_compressed_r)
                 compressed_ac_g = run_length_encoding(zz_compressed_g)
                 compressed_ac_b = run_length_encoding(zz_compressed_b)
@@ -233,11 +265,11 @@ if __name__ == "__main__":
                 decompressed_ac_g = run_length_decoding(compressed_ac_g)
                 decompressed_ac_b = run_length_decoding(compressed_ac_b)
 
-                decompressed_zz = zigzag_decoding(decompressed_ac_r, decompressed_ac_g, decompressed_ac_b)
+                decompressed_zz = zigzag_decoding(zz, decompressed_ac_r, decompressed_ac_g, decompressed_ac_b, time_chunk)
 
                 #! 3D IDCT AND DEQUANTIZATION
-                decompressed = unquantize(decompressed_zz, Q)
-                reconstitued[8*i:8*(i+1), 8*j:8*(j+1), :, 8*t:8*(t+1)] = decompressed
+                decompressed = unquantize(decompressed_zz, Q_time_chunk)
+                reconstitued[8*i:8*(i+1), 8*j:8*(j+1), :, times_array[t]: times_array[t+1]] = decompressed
     
     dc_values = delta_encoding(dc_values)
     #! EOF
