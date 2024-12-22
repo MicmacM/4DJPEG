@@ -32,9 +32,15 @@ The decompressed video is nearly identical to the input video, except when there
 
 The compression ratio achieved is between 97,5 and 99%, this is really nice I think !
 
+### Comparison with a 2D DCT method
+
+When trying to apply a JPEG like compression to each image indivually, the compression is only up to 95%, thus the method works ! It could be improved further on large videos I believe.
+
+### Different time chunks
+
+When applying different time chunks to only get the parts where the image
+
 ## To Do
-- Experiment against the version that only uses a series of jpeg image
-- Try selecting the length of the temporal chunks according to the temporal variation
 - Compare it against MPEG
 - Use a better quantization matrix
 
