@@ -5,7 +5,8 @@ import matplotlib.animation as animation
 from scipy.fftpack import dct, idct
 import time_array
 import cv2
-
+from tqdm import tqdm
+import time
 def clamp(color):
     return max(min(color, ))
 
@@ -194,30 +195,24 @@ def number_of_bits_dc(lst):
 
 
 
-def compute_error(im1, im2):
-    diff = im1.astype(np.float64) - im2.astype(np.float64)
-    distance = np.sqrt(np.sum(diff ** 2))
-    return distance
-
-def compute_spatial_chunk_size(video_array):
-    
-
 if __name__ == "__main__":
     video_path = "../cresson.mp4"
-    base_x = 800
-    base_y = 350
+    base_x = 400
+    base_y = 50
     #Number of spatial chunk of size 8
-    spatial_i = 12
+    spatial_i = 40
     t0 = 2
     #Number of temporal chunk of size 8
     temporal_i = 10
+    before_loading = time.time()
     test_array = time_array.video_to_frames_array(video_path)
+    print(f"Video loaded in {time.time() - before_loading} seconds.")
     compressed_data = np.zeros((spatial_i*8, spatial_i*8, 3, temporal_i*8)).astype(int)
     reconstitued = np.zeros((spatial_i*8, spatial_i*8, 3, temporal_i*8)).astype(int)
     echantillon = test_array[base_x:base_x + spatial_i*8, base_y:base_y + spatial_i*8, :, t0:t0+(temporal_i+1)*8]
     dc_values = []
     ac_values = []
-    for i in range(spatial_i):
+    for i in tqdm(range(spatial_i), "progress : "):
         for j in range(spatial_i):
             for t in range(temporal_i):
                 sample = test_array[base_x + i*8:base_x + 8*(i+1), base_y + 8*j:base_y + 8*(j+1), :, t0+t*8:t0+(t+1)*8]

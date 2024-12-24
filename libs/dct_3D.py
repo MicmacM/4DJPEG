@@ -210,19 +210,21 @@ def compute_time_chunk_size(video_array, N_chunk, t0 = 0, tf = -1):
     return np.sort(np.argsort(changes)[::-1][:N_chunk]) + [1]
 
 if __name__ == "__main__":
-    video_path = "../nature.mp4"
-    base_x = 0
-    base_y = 0
+    video_path = "../cresson.mp4"
+    base_x = 400
+    base_y = 50
     #Number of spatial chunk of size 8
-    spatial_i = 75
+    spatial_i = 40
     t0 = 2
     tf = 82
+    before_loading = time.time()
     test_array = time_array.video_to_frames_array(video_path)
+    print(f"Video loaded in {time.time() - before_loading} seconds.")
     compressed_data = np.zeros((spatial_i*8, spatial_i*8, 3, tf - t0)).astype(int)
     reconstitued = np.zeros((spatial_i*8, spatial_i*8, 3, tf - t0)).astype(int)
     echantillon = test_array[base_x:base_x + spatial_i*8, base_y:base_y + spatial_i*8, :, t0:tf+1]
 
-    times_array = list(compute_time_chunk_size(echantillon, 3, t0, tf))
+    times_array = list(compute_time_chunk_size(echantillon, 10, t0, tf))
 
     if t0 not in times_array:
         times_array = [t0] + times_array

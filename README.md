@@ -38,7 +38,7 @@ When trying to apply a JPEG like compression to each image indivually, the compr
 
 ### Different time chunks
 
-When applying different time chunks to only get the parts where the image
+When applying different time chunks to only get the parts where the image doesn't change much over one timestep, the speed of the algorithm becomes much faster, and the quality isn't deteriorated anymore because we are suppressing the high temporal frequency with the quantization, however there aren't much of thoses since on one time chunk the transitions are smooth.
 
 ## To Do
 - Compare it against MPEG
